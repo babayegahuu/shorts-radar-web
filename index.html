@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>쇼츠 레이더</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* 관제실 콘솔: 차가운 슬레이트 바탕 + 신호색(청록) 하나, 히트만 호박색. 숫자는 고정폭. */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface-2:#eef1f5; --line:#dde2ea;
+  --fg:#141a22; --fg-2:#4a5566; --fg-3:#7a8597;
+  --accent:#0f7c86; --accent-soft:#e1f2f3; --on-accent:#ffffff;
+  --hit:#b86a00; --hit-soft:#fff1dc; --up:#1f7a3f; --up-soft:#e2f4e8; --err:#c0362c; --err-soft:#fde8e6;
+  --shadow:0 1px 2px rgba(20,26,34,.06),0 6px 24px rgba(20,26,34,.06);
+  --sans:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r:12px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1016; --surface:#141a22; --surface-2:#1a212b; --line:#252e3a;
+  --fg:#e7ecf2; --fg-2:#a6b0bf; --fg-3:#6f7a8b;
+  --accent:#4cc9d0; --accent-soft:#11303a; --on-accent:#06191c;
+  --hit:#f2a93b; --hit-soft:#3a2a10; --up:#5fd08a; --up-soft:#123222; --err:#ff7a6e; --err-soft:#3a1714;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 28px rgba(0,0,0,.35); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1016; --surface:#141a22; --surface-2:#1a212b; --line:#252e3a;
+  --fg:#e7ecf2; --fg-2:#a6b0bf; --fg-3:#6f7a8b;
+  --accent:#4cc9d0; --accent-soft:#11303a; --on-accent:#06191c;
+  --hit:#f2a93b; --hit-soft:#3a2a10; --up:#5fd08a; --up-soft:#123222; --err:#ff7a6e; --err-soft:#3a1714;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 28px rgba(0,0,0,.35); color-scheme:dark}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans);font-feature-settings:"tnum"}
+a{color:var(--accent)}
+button,input,select,textarea{font:inherit;color:inherit}
+img{max-width:100%;display:block}
+[hidden]{display:none!important}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* 상단 */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--surface);z-index:30}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top-row{display:flex;align-items:center;gap:12px;padding-block:12px 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:-.02em;white-space:nowrap}
+.radar{width:26px;height:26px;border-radius:50%;border:2px solid var(--accent);position:relative;flex:none;overflow:hidden}
+.radar::before{content:"";position:absolute;inset:0;background:conic-gradient(from 0deg,transparent 0 300deg,color-mix(in srgb,var(--accent) 60%,transparent) 360deg);animation:sweep 3.2s linear infinite}
+.radar::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:var(--accent)}
+@keyframes sweep{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.radar::before{animation:none}}
+.status{flex:1;min-width:0;color:var(--fg-3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs-scroll{overflow-x:auto;scrollbar-width:none}
+.tabs-scroll::-webkit-scrollbar{display:none}
+.tabs{display:flex;gap:2px;padding-block:4px 0}
+.tab{appearance:none;border:0;background:none;padding:10px 14px 12px;font-weight:600;color:var(--fg-2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;font-size:14.5px}
+.tab:hover{color:var(--fg)}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+
+/* 공통 */
+main{padding-block:22px 120px}
+section.view{display:grid;gap:22px}
+h2{font-size:20px;margin:0;letter-spacing:-.02em;text-wrap:balance}
+h3{font-size:15.5px;margin:0;letter-spacing:-.01em}
+.sub{color:var(--fg-3);font-size:13px}
+.label{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;min-width:0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:8px 14px;font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.3}
+.btn:hover{border-color:var(--fg-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--fg-2)}
+.btn.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,var(--line))}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.vcard:focus-visible,.rrow:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=text],input[type=password],input[type=number],select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%;min-width:0}
+textarea{resize:vertical;line-height:1.55}
+.field{display:grid;gap:6px;min-width:0}
+.field>span{font-size:13px;font-weight:600;color:var(--fg-2)}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--surface-2);color:var(--fg-2);white-space:nowrap}
+.chip.hit{background:var(--hit-soft);color:var(--hit)}
+.chip.up{background:var(--up-soft);color:var(--up)}
+.chip.acc{background:var(--accent-soft);color:var(--accent)}
+.empty{padding:28px 16px;text-align:center;color:var(--fg-3)}
+.notice{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:var(--r);background:var(--accent-soft);color:var(--fg);font-size:14px}
+.notice.warn{background:var(--hit-soft)}
+.notice.err{background:var(--err-soft)}
+.notice b{white-space:nowrap}
+.scroll-x{overflow-x:auto}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.kpi .v{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:-.03em;margin-top:2px}
+.kpi .d{font-size:12.5px;color:var(--fg-3)}
+
+/* 영상 카드 */
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px}
+.vcard{display:grid;grid-template-rows:auto 1fr;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;text-align:left;padding:0;transition:transform .15s,box-shadow .15s}
+.vcard:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+@media (prefers-reduced-motion:reduce){.vcard{transition:none}.vcard:hover{transform:none}}
+.thumb{position:relative;aspect-ratio:4/5;background:var(--surface-2);overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb .rank{position:absolute;left:8px;top:8px;background:rgba(8,12,18,.78);color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;padding:2px 7px;border-radius:6px}
+.thumb .gain{position:absolute;left:8px;bottom:8px;right:8px;display:flex;justify-content:space-between;align-items:end;gap:6px}
+.thumb .gain b{background:rgba(8,12,18,.78);color:#fff;font-family:var(--mono);font-size:12.5px;padding:3px 8px;border-radius:6px}
+.vbody{padding:10px 12px 12px;display:grid;gap:4px;align-content:start;min-width:0}
+.vtitle{font-weight:600;font-size:13.5px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vmeta{font-size:12px;color:var(--fg-3);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+/* 순위 리스트 */
+.filters{display:grid;grid-template-columns:2fr 1fr 1fr 1.3fr;gap:10px}
+@media (max-width:720px){.filters{grid-template-columns:1fr 1fr}}
+.rlist{display:grid;gap:2px}
+.rrow{display:grid;grid-template-columns:34px 56px minmax(0,1fr) repeat(4,minmax(64px,auto));gap:12px;align-items:center;padding:8px 10px;border-radius:10px;cursor:pointer;background:none;border:0;text-align:left;width:100%}
+.rrow:hover{background:var(--surface-2)}
+.rrow .no{font-family:var(--mono);color:var(--fg-3);font-weight:700;text-align:right}
+.rrow .rt{width:56px;aspect-ratio:4/5;border-radius:7px;overflow:hidden;background:var(--surface-2)}
+.rrow .rt img{width:100%;height:100%;object-fit:cover}
+.rrow .tt{min-width:0}
+.rrow .tt div:first-child{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rrow .m{text-align:right;font-family:var(--mono);font-size:13px;white-space:nowrap}
+.rrow .m small{display:block;font-family:var(--sans);font-size:11px;color:var(--fg-3)}
+.rhead{font-size:11.5px;color:var(--fg-3);font-weight:600;cursor:default}
+.rhead:hover{background:none}
+@media (max-width:720px){
+  .rrow{grid-template-columns:24px 48px minmax(0,1fr) auto;gap:10px}
+  .rrow .rt{width:48px}
+  .rrow .m.opt{display:none}
+  .rhead{display:none}
+}
+
+/* 표 */
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--fg-3);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+td.num{font-family:var(--mono)}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--surface-2)}
+
+/* 막대 */
+.bars{display:grid;gap:9px}
+.bar{display:grid;grid-template-columns:minmax(80px,140px) minmax(0,1fr) 70px;gap:10px;align-items:center;font-size:13px}
+.bar .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .track{height:12px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.bar .fill{height:100%;background:var(--accent);border-radius:99px}
+.bar .fill.hitc{background:var(--hit)}
+.bar .v{text-align:right;font-family:var(--mono);font-size:12.5px}
+
+/* AI 출력 */
+.ai{display:grid;gap:16px}
+.ai .headline{font-size:17px;font-weight:700;letter-spacing:-.01em;line-height:1.5}
+.ai ul{margin:0;padding-left:18px;display:grid;gap:6px}
+.ai .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.ai .box{background:var(--surface-2);border-radius:10px;padding:12px 14px;min-width:0}
+.ai .box h4{margin:0 0 8px;font-size:13px;color:var(--fg-2)}
+.idea{display:grid;gap:2px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--surface-2);border-radius:0 8px 8px 0}
+.idea b{font-size:14px}
+.idea span{font-size:13px;color:var(--fg-2)}
+.aimeta{font-size:12px;color:var(--fg-3)}
+.kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px 14px;font-size:14px}
+.kv dt{color:var(--fg-3);font-size:13px}
+.kv dd{margin:0}
+
+/* 대본 */
+.script{display:grid;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.script table td,.script table th{text-align:left;white-space:normal;vertical-align:top}
+.script table td:first-child{font-family:var(--mono);white-space:nowrap;color:var(--fg-3)}
+.script table tbody tr{cursor:default}
+.script table tbody tr:hover td{background:none}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:5px 11px;font-size:13px;cursor:pointer}
+.pill[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+details.hist{border-top:1px solid var(--line);padding-block:10px}
+details.hist summary{cursor:pointer;font-weight:600;font-size:14px}
+
+/* 상세 */
+dialog{border:0;padding:0;background:transparent;max-width:min(980px,calc(100vw - 24px));width:100%;max-height:calc(100dvh - 24px)}
+dialog::backdrop{background:rgba(6,10,16,.55)}
+.dlg{background:var(--surface);border-radius:16px;overflow:auto;max-height:calc(100dvh - 24px);box-shadow:var(--shadow)}
+.dlg-grid{display:grid;grid-template-columns:260px minmax(0,1fr);gap:22px;padding:20px}
+@media (max-width:720px){.dlg-grid{grid-template-columns:1fr}.dlg-grid .dthumb{max-width:220px}}
+.dthumb{border-radius:12px;overflow:hidden;aspect-ratio:4/5;background:var(--surface-2);position:relative;display:block}
+.dthumb img{width:100%;height:100%;object-fit:cover}
+.dthumb .play{position:absolute;inset:auto 10px 10px 10px;background:rgba(8,12,18,.8);color:#fff;text-align:center;padding:8px;border-radius:8px;font-weight:600;font-size:13px}
+.mgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:520px){.mgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mgrid div{background:var(--surface-2);border-radius:10px;padding:10px 12px}
+.mgrid b{display:block;font-family:var(--mono);font-size:17px}
+.mgrid span{font-size:12px;color:var(--fg-3)}
+.close{position:sticky;top:0;display:flex;justify-content:flex-end;padding:10px 12px 0;background:linear-gradient(var(--surface) 70%,transparent);z-index:1}
+.spark{width:100%;height:60px}
+
+/* 진행 표시 · 알림 */
+.progress{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--surface);border-top:1px solid var(--line);padding-block:12px calc(12px + env(safe-area-inset-bottom,0px))}
+.progress .wrap{display:flex;gap:14px;align-items:center}
+.progress .txt{flex:1;min-width:0;font-size:13.5px}
+.progress .ptrack{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:6px}
+.progress .pfill{height:100%;width:0;background:var(--accent);transition:width .3s}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:min(560px,calc(100vw - 32px));box-shadow:var(--shadow)}
+.toast.err{background:var(--err);color:#fff}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sweep .8s linear infinite;display:inline-block}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="brand"><span class="radar" aria-hidden="true"></span>쇼츠 레이더</div>
+      <div class="status" id="status">불러오는 중…</div>
+      <button class="btn" id="refreshBtn" type="button" title="유튜브에서 최신 데이터 가져오기">새로고침</button>
+    </div>
+  </div>
+  <div class="wrap tabs-scroll">
+    <nav class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-tab="overview">개요</button>
+      <button class="tab" role="tab" data-tab="ranking">인기 순위</button>
+      <button class="tab" role="tab" data-tab="channels">채널 비교</button>
+      <button class="tab" role="tab" data-tab="patterns">인기 요소</button>
+      <button class="tab" role="tab" data-tab="script">대본 생성</button>
+      <button class="tab" role="tab" data-tab="settings">설정</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banner"></div>
+  <section class="view" id="view-overview"></section>
+  <section class="view" id="view-ranking" hidden></section>
+  <section class="view" id="view-channels" hidden></section>
+  <section class="view" id="view-patterns" hidden></section>
+  <section class="view" id="view-script" hidden></section>
+  <section class="view" id="view-settings" hidden></section>
+</main>
+
+<dialog id="detail"><div class="dlg" id="detailBody"></div></dialog>
+
+<div class="progress" id="progress" hidden>
+  <div class="wrap">
+    <span class="spin" aria-hidden="true"></span>
+    <div class="txt"><div id="progressTxt">작업 중…</div><div class="ptrack"><div class="pfill" id="progressFill"></div></div></div>
+    <button class="btn" id="progressStop" type="button">중지</button>
+  </div>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script>
+"use strict";
+/* ───────────────── 기본값 ───────────────── */
+const DEFAULT_CHANNELS = [
+  ["인간탐구","https://www.youtube.com/channel/UC_uyKELaHImqHmcJWRFDwSg"],
+  ["인생책방","https://www.youtube.com/@%EC%9D%B8%EC%83%9D%EC%B1%85%EB%B0%A9_0"],
+  ["지혜회관","https://www.youtube.com/@%EC%A7%80%ED%98%9C%ED%9A%8C%EA%B4%80"],
+  ["세모지","https://www.youtube.com/channel/UC4_RmLdCMF-jlTsC8qqWRcA"],
+  ["무지개지혜","https://www.youtube.com/@%EB%AC%B4%EC%A7%80%EA%B0%9C%EC%A7%80%ED%98%9C-n6r"],
+  ["1분지혜","https://www.youtube.com/@1%EB%B6%84%EC%A7%80%ED%98%9C-h6k/shorts"],
+  ["지혜보따리","https://www.youtube.com/@%EC%A7%80%ED%98%9C%EB%B3%B4%EB%94%B0%EB%A6%AC-y6q"],
+  ["아포리아","https://www.youtube.com/@%EC%9D%B8%EC%83%9D%EC%87%BC%EC%B8%A0-z7r"],
+  ["짧은지혜","https://www.youtube.com/@%EC%A7%A7%EC%9D%80%EC%A7%80%ED%98%9C-z4h"],
+  ["명언","https://www.youtube.com/@lifequotes_365-x4i"],
+  ["성공이야기","https://www.youtube.com/@%EC%84%B1%EA%B3%B5%EB%A7%88%EC%9D%B8%EB%93%9C-t7b"],
+  ["멘탈연구소","https://www.youtube.com/@%EB%A9%98%ED%83%88%EC%97%B0%EA%B5%AC%EC%86%8C-q6m"],
+].map(([name,url])=>({name,url}));
+const DEFAULT_SETTINGS = {model:"gemini-flash-latest", perChannel:50, maxSec:180, batchPerClick:15, autoHours:3};
+const HOOK_TYPES = ["질문형","충격·반전 선언","숫자·리스트","경고·금지","공감·위로","비밀·폭로","명언 인용","상황 묘사","기타"];
+const RECENT_DAYS = 7;
+
+/* ───────────────── 저장소 ───────────────── */
+const store = {
+  get(k,d){try{const v=localStorage.getItem("sr."+k);return v?JSON.parse(v):d}catch{return d}},
+  set(k,v){try{localStorage.setItem("sr."+k,JSON.stringify(v));return true}catch(e){toast("브라우저 저장 공간이 가득 찼습니다. 설정에서 분석 기록을 정리해 주세요.",true);return false}},
+  del(k){try{localStorage.removeItem("sr."+k)}catch{}}
+};
+const S = {
+  keys: store.get("keys",{yt:"",gm:""}),
+  settings: {...DEFAULT_SETTINGS, ...store.get("settings",{})},
+  channels: store.get("channels",DEFAULT_CHANNELS),
+  data: store.get("data",null),          // {fetchedAt, channels:{id:{}}, videos:{id:{}}, errors:[]}
+  snaps: store.get("snaps",{}),          // {YYYY-MM-DD:{videoId:views}}
+  analyses: store.get("analyses",{}),    // {videoId:{...}}
+  reports: store.get("reports",{}),      // {briefing:{at,data}, pattern:{at,data}}
+  scripts: store.get("scripts",[]),
+  demo:false,
+};
+const save = k => store.set(k,S[k]);
+
+/* ───────────────── 유틸 ───────────────── */
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const kstDate = (t=Date.now()) => new Date(t+9*3600e3).toISOString().slice(0,10);
+const fmt = n => { n=Number(n)||0; const a=Math.abs(n);
+  if(a>=1e8) return (n/1e8).toFixed(a>=1e9?0:1)+"억";
+  if(a>=1e4) return (n/1e4).toFixed(a>=1e5?0:1)+"만";
+  return Math.round(n).toLocaleString("ko-KR"); };
+const pct = n => (n*100).toFixed(n<0.1?2:1)+"%";
+const median = a => { if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y), m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+const mean = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : 0;
+const ago = t => { const m=(Date.now()-t)/6e4; if(m<1) return "방금"; if(m<60) return Math.floor(m)+"분 전"; const h=m/60; if(h<24) return Math.floor(h)+"시간 전"; return Math.floor(h/24)+"일 전"; };
+const fmtDate = iso => { const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()}`; };
+const dur = s => s>=60? `${Math.floor(s/60)}분 ${s%60}초` : `${s}초`;
+const parseDur = iso => { const m=/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso||""); if(!m) return 0; return (+m[1]||0)*86400+(+m[2]||0)*3600+(+m[3]||0)*60+(+m[4]||0); };
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+let toastTimer;
+function toast(msg,err=false){ const t=$("#toast"); t.textContent=msg; t.className="toast"+(err?" err":""); t.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.hidden=true, err?7000:3500); }
+
+/* 진행 표시 */
+let stopFlag=false;
+function progress(on,txt="",ratio=0){ $("#progress").hidden=!on; if(on){ $("#progressTxt").textContent=txt; $("#progressFill").style.width=Math.round(ratio*100)+"%"; } }
+$("#progressStop").onclick=()=>{ stopFlag=true; $("#progressTxt").textContent="지금 작업까지만 하고 멈춥니다…"; };
+
+/* ───────────────── YouTube Data API ───────────────── */
+const YT = "https://www.googleapis.com/youtube/v3/";
+async function yt(path, params){
+  const u = new URL(YT+path); Object.entries({...params,key:S.keys.yt}).forEach(([k,v])=>u.searchParams.set(k,v));
+  let r; try{ r = await fetch(u); }catch(e){ throw new Error("유튜브에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); }
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || j.error){ const e=new Error(ytError(j.error,r.status)); e.status=r.status; throw e; }
+  return j;
+}
+function ytError(err,status){
+  const reason = err?.errors?.[0]?.reason || "";
+  if(reason==="keyInvalid"||/API key not valid/i.test(err?.message||"")) return "유튜브 API 키가 올바르지 않습니다. 설정에서 키를 다시 확인해 주세요.";
+  if(reason==="quotaExceeded") return "유튜브 API 오늘 사용량을 모두 썼습니다. 내일 다시 시도해 주세요.";
+  if(reason==="accessNotConfigured") return "Google Cloud에서 YouTube Data API v3가 '사용' 상태가 아닙니다.";
+  if(reason==="ipRefererBlocked"||/referer/i.test(err?.message||"")) return "API 키의 웹사이트 제한에 이 페이지 주소가 등록되어 있지 않습니다.";
+  return `유튜브 API 오류 (${status}): ${err?.message||"알 수 없는 오류"}`;
+}
+function parseChannelInput(raw){
+  let s = String(raw||"").trim(); try{ s=decodeURIComponent(s) }catch{}
+  let m = s.match(/youtube\.com\/channel\/(UC[\w-]{22})/); if(m) return {id:m[1]};
+  m = s.match(/youtube\.com\/(@[^/?#\s]+)/); if(m) return {handle:m[1]};
+  if(/^UC[\w-]{22}$/.test(s)) return {id:s};
+  return {handle: s.startsWith("@")? s : "@"+s};
+}
+async function resolveChannel(c){
+  if(c.id) return c.id;
+  const p = parseChannelInput(c.url);
+  if(p.id) return p.id;
+  const j = await yt("channels",{part:"id",forHandle:p.handle});
+  if(!j.items?.length) throw new Error(`채널을 찾지 못했습니다: ${c.name} (${p.handle})`);
+  return j.items[0].id;
+}
+async function playlistIds(pid, limit){
+  let ids=[], token="";
+  while(ids.length<limit){
+    const j = await yt("playlistItems",{part:"contentDetails",playlistId:pid,maxResults:Math.min(50,limit-ids.length),...(token?{pageToken:token}:{})});
+    ids.push(...(j.items||[]).map(i=>i.contentDetails.videoId));
+    token=j.nextPageToken; if(!token) break;
+  }
+  return ids;
+}
+
+async function refreshData(){
+  if(!S.keys.yt){ toast("설정에서 유튜브 API 키를 먼저 넣어 주세요.",true); location.hash="settings"; return; }
+  stopFlag=false; const btn=$("#refreshBtn"); btn.disabled=true;
+  const errors=[], chMap={}, vids={}, isShortList={};
+  try{
+    // 1) 채널 ID 확인
+    progress(true,"채널 확인 중…",0.05);
+    for(const c of S.channels){
+      try{ c.id = await resolveChannel(c); }catch(e){ errors.push(e.message); }
+    }
+    save("channels");
+    const ids = S.channels.filter(c=>c.id).map(c=>c.id);
+    // 2) 채널 정보
+    for(let i=0;i<ids.length;i+=50){
+      const j = await yt("channels",{part:"snippet,statistics,contentDetails",id:ids.slice(i,i+50).join(",")});
+      for(const ch of j.items||[]){
+        const cfg = S.channels.find(c=>c.id===ch.id);
+        chMap[ch.id] = { id:ch.id, name: cfg?.name || ch.snippet.title, ytName: ch.snippet.title,
+          handle: ch.snippet.customUrl||"", thumb: ch.snippet.thumbnails?.default?.url||"",
+          subs: +ch.statistics.subscriberCount||0, hiddenSubs: !!ch.statistics.hiddenSubscriberCount,
+          videoCount: +ch.statistics.videoCount||0, uploads: ch.contentDetails.relatedPlaylists.uploads };
+      }
+    }
+    // 3) 채널별 최근 쇼츠 목록
+    const chIds = Object.keys(chMap);
+    for(let i=0;i<chIds.length;i++){
+      if(stopFlag) break;
+      const ch = chMap[chIds[i]];
+      progress(true,`쇼츠 목록 가져오는 중 · ${ch.name} (${i+1}/${chIds.length})`, 0.1+0.6*i/chIds.length);
+      let list=[], fromShorts=true;
+      try{ list = await playlistIds("UUSH"+ch.id.slice(2), S.settings.perChannel); }catch(e){ list=[]; }
+      if(!list.length){ fromShorts=false; try{ list = await playlistIds(ch.uploads, S.settings.perChannel); }catch(e){ errors.push(`${ch.name}: ${e.message}`); } }
+      list.forEach(v=>{ vids[v]=ch.id; isShortList[v]=fromShorts; });
+    }
+    // 4) 영상 상세
+    const vIds = Object.keys(vids), videos={};
+    for(let i=0;i<vIds.length;i+=50){
+      progress(true,`조회수 가져오는 중 (${Math.min(i+50,vIds.length)}/${vIds.length})`, 0.7+0.28*i/Math.max(vIds.length,1));
+      const j = await yt("videos",{part:"snippet,contentDetails,statistics",id:vIds.slice(i,i+50).join(",")});
+      for(const v of j.items||[]){
+        const sec = parseDur(v.contentDetails.duration);
+        const short = isShortList[v.id] || (sec>0 && sec<=S.settings.maxSec);
+        if(!short) continue;
+        const th = v.snippet.thumbnails||{};
+        videos[v.id] = { id:v.id, ch: v.snippet.channelId, title:v.snippet.title, desc:(v.snippet.description||"").slice(0,600),
+          pub:v.snippet.publishedAt, sec, thumb:(th.high||th.medium||th.default||{}).url||"",
+          views:+v.statistics.viewCount||0, likes:+v.statistics.likeCount||0, comments:+v.statistics.commentCount||0 };
+      }
+    }
+    if(!Object.keys(videos).length && errors.length) throw new Error(errors[0]);
+    if(S.demo){ S.analyses=store.get("analyses",{}); S.reports=store.get("reports",{}); }
+    S.data = {fetchedAt:Date.now(), channels:chMap, videos, errors};
+    S.demo=false;
+    save("data");
+    // 조회수 기록(전일 대비 증가량 계산용) — 최근 15일만 보관
+    const today=kstDate(); S.snaps[today]={}; for(const v of Object.values(videos)) S.snaps[today][v.id]=v.views;
+    Object.keys(S.snaps).sort().slice(0,-15).forEach(d=>delete S.snaps[d]);
+    save("snaps");
+    toast(`${Object.keys(chMap).length}개 채널 · 쇼츠 ${Object.keys(videos).length}개를 불러왔습니다.`);
+    if(errors.length) toast(errors[0],true);
+  }catch(e){ toast(e.message,true); }
+  finally{ progress(false); btn.disabled=false; computeCache=null; renderAll(); }
+}
+
+/* ───────────────── 지표 계산 ───────────────── */
+let computeCache=null;
+function rows(){
+  if(computeCache) return computeCache;
+  const D = S.data; if(!D) return computeCache={list:[],byCh:{},channels:[]};
+  const now=Date.now(), today=kstDate();
+  const dates=Object.keys(S.snaps).sort();
+  const list = Object.values(D.videos).filter(v=>D.channels[v.ch]).map(v=>{
+    const age = Math.max((now-new Date(v.pub))/864e5, .25);
+    return {...v, chName:D.channels[v.ch].name, age, vpd:v.views/age, eng:(v.likes+v.comments)/Math.max(v.views,1), a:S.analyses[v.id]||null};
+  });
+  const byCh={};
+  for(const r of list) (byCh[r.ch] ||= []).push(r);
+  for(const arr of Object.values(byCh)){
+    const base = arr.filter(r=>r.age>=2).sort((a,b)=>new Date(b.pub)-new Date(a.pub)).slice(0,30);
+    const med = Math.max(median((base.length?base:arr).map(r=>r.views)),1);
+    arr.forEach(r=>{ r.med=med; r.outlier=r.views/med; });
+  }
+  for(const r of list){
+    let prev=null;
+    for(let i=dates.length-1;i>=0;i--){ const d=dates[i]; if(d<today && S.snaps[d][r.id]!=null){ prev={d,views:S.snaps[d][r.id]}; break; } }
+    if(prev){ const days=Math.max((new Date(today)-new Date(prev.d))/864e5,1); r.gain=Math.max((r.views-prev.views)/days,0); r.gainEst=false; }
+    else { r.gain = r.age<=1.5 ? r.views : r.vpd; r.gainEst=true; }
+  }
+  return computeCache={list,byCh,channels:Object.values(D.channels)};
+}
+function channelStats(days){
+  const {byCh,channels}=rows(); const cut=Date.now()-days*864e5;
+  return channels.map(c=>{
+    const all=byCh[c.id]||[], rec=all.filter(r=>new Date(r.pub)>=cut);
+    return { ...c, n:rec.length, perWeek:rec.length/days*7, med:median(rec.map(r=>r.views)), max:Math.max(0,...rec.map(r=>r.views)),
+      total:rec.reduce((s,r)=>s+r.views,0), hits:rec.filter(r=>r.outlier>=3).length, eng:mean(rec.map(r=>r.eng)), sec:mean(rec.map(r=>r.sec)),
+      gain:all.reduce((s,r)=>s+(r.gain||0),0) };
+  }).sort((a,b)=>b.med-a.med);
+}
+const outlierChip = o => o>=3? `<span class="chip hit">${o.toFixed(1)}배 히트</span>` : o>=1.5? `<span class="chip up">${o.toFixed(1)}배</span>` : `<span class="chip">${o.toFixed(1)}배</span>`;
+
+/* ───────────────── Gemini ───────────────── */
+async function gemini({parts, system, schema, temperature=0.6, lowMedia=false}){
+  if(!S.keys.gm) throw new Error("설정에서 Gemini API 키를 먼저 넣어 주세요.");
+  const body = { contents:[{role:"user",parts}], generationConfig:{temperature, responseMimeType:"application/json", responseSchema:schema} };
+  if(system) body.systemInstruction={parts:[{text:system}]};
+  if(lowMedia) body.generationConfig.mediaResolution="MEDIA_RESOLUTION_LOW";
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(S.settings.model)}:generateContent`;
+  let r; try{ r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":S.keys.gm},body:JSON.stringify(body)}); }
+  catch(e){ throw new Error("Gemini에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."); }
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){
+    const msg=j.error?.message||"";
+    const e=new Error(
+      r.status===429 ? "Gemini 무료 사용량 한도에 도달했습니다. 잠시 뒤나 내일 다시 시도해 주세요." :
+      r.status===404 ? `모델 '${S.settings.model}'을 찾을 수 없습니다. 설정 → 모델 목록 확인에서 다른 모델을 고르세요.` :
+      /API key not valid|API_KEY_INVALID/i.test(msg) ? "Gemini API 키가 올바르지 않습니다." :
+      `Gemini 오류 (${r.status}): ${msg}`);
+    e.status=r.status; throw e;
+  }
+  const cand=j.candidates?.[0];
+  if(!cand){ throw new Error("Gemini가 응답을 거부했습니다"+(j.promptFeedback?.blockReason?` (${j.promptFeedback.blockReason})`:"")); }
+  const text=(cand.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||"").join("");
+  if(!text){ const e=new Error(`Gemini 응답이 비어 있습니다 (${cand.finishReason||"원인 불명"})`); e.finish=cand.finishReason; throw e; }
+  try{ return JSON.parse(text); }catch{ const m=text.match(/[\[{][\s\S]*[\]}]/); if(m) return JSON.parse(m[0]); throw new Error("Gemini 응답을 해석하지 못했습니다."); }
+}
+const T = { S:{type:"STRING"}, I:{type:"INTEGER"}, A:(items)=>({type:"ARRAY",items}), O:(props,req)=>({type:"OBJECT",properties:props,required:req||Object.keys(props)}) };
+
+const ANALYSIS_SCHEMA = T.A(T.O({
+  video_id:T.S, topic:T.S, hook_type:{type:"STRING",enum:HOOK_TYPES}, hook:T.S, structure:T.S, emotion:T.S,
+  visual_style:T.S, text_overlay:T.S, audio:T.S, pacing:{type:"STRING",enum:["빠름","보통","느림"]}, cta:T.S,
+  why_it_works:T.S, transcript:T.S, keywords:T.A(T.S), score:T.I }));
+function analysisPrompt(summarize){ return `당신은 한국 유튜브 쇼츠 성과 분석가입니다. 위에 첨부한 쇼츠 영상들을 각각 실제로 보고 듣고 분석하세요.
+장르는 명언·인생 지혜·자기계발·심리 쇼츠입니다. 영상마다 아래 항목을 채워 첨부 순서대로 JSON 배열로 답하세요. video_id는 알려준 값 그대로 적습니다.
+- topic: 핵심 주제 한 줄
+- hook_type: 목록 중 하나
+- hook: 첫 1~3초에 나오는 말이나 화면 문구
+- structure: 전개 구조를 화살표로 (예: 경고 훅 → 사례 3개 → 반전 → 한 줄 교훈)
+- emotion: 주된 감정 트리거 한 단어 (불안, 공감, 위로, 깨달음, 분노, 동기부여, 호기심 등)
+- visual_style: 배경 영상·이미지 종류, 인물 여부, 색감
+- text_overlay: 화면 자막 스타일 (위치, 크기, 강조 색, 줄 수)
+- audio: 내레이션 목소리(성별·톤·AI 음성 여부)와 배경음악 분위기
+- pacing: 빠름/보통/느림
+- cta: 마지막 구독·댓글 유도 문구, 없으면 "없음"
+- why_it_works: 조회수 맥락과 함께 잘 된(또는 안 된) 이유 2~3문장
+- transcript: ${summarize? "대사의 흐름을 5줄 이내로 요약(원문 그대로 옮기지 말 것)" : "내레이션 전체 받아쓰기, 내레이션이 없으면 화면 자막 전체"}
+- keywords: 핵심 키워드 3~6개
+- score: 훅의 강도 1~10
+보이는 근거로 판단하고, 근거 없는 수치는 지어내지 마세요.`; }
+
+async function analyzeVideos(batch){
+  const parts=[];
+  batch.forEach((v,i)=>{ parts.push({text:`[영상 ${i+1}] video_id=${v.id} | 채널: ${v.chName} | 제목: ${v.title} | 조회수 ${v.views.toLocaleString()} (채널 평소의 ${v.outlier.toFixed(1)}배)`}); parts.push({fileData:{fileUri:`https://www.youtube.com/watch?v=${v.id}`}}); });
+  let out;
+  try{ out = await gemini({parts:[...parts,{text:analysisPrompt(false)}], schema:ANALYSIS_SCHEMA, temperature:0.3, lowMedia:true}); }
+  catch(e){ if(e.finish==="RECITATION"||e.finish==="OTHER") out = await gemini({parts:[...parts,{text:analysisPrompt(true)}], schema:ANALYSIS_SCHEMA, temperature:0.3, lowMedia:true}); else throw e; }
+  const ids=new Set(batch.map(v=>v.id)); let n=0;
+  for(const a of (Array.isArray(out)?out:[])){ if(ids.has(a.video_id)){ S.analyses[a.video_id]={...a, at:Date.now(), model:S.settings.model}; n++; } }
+  save("analyses"); computeCache=null; return n;
+}
+function pendingQueue(){
+  const {list}=rows(); const todo=list.filter(r=>!r.a);
+  const recent=todo.filter(r=>r.age<=RECENT_DAYS).sort((a,b)=>b.gain-a.gain);
+  const old=todo.filter(r=>r.age>RECENT_DAYS).sort((a,b)=>b.outlier-a.outlier);
+  return [...recent,...old];
+}
+async function runBatchAnalysis(){
+  if(S.demo){ toast("예시 데이터에서는 분석할 수 없습니다. 설정에서 키를 넣고 새로고침해 주세요.",true); return; }
+  const q=pendingQueue().slice(0,S.settings.batchPerClick); if(!q.length){ toast("분석할 영상이 남아 있지 않습니다."); return; }
+  stopFlag=false; let done=0;
+  try{
+    for(let i=0;i<q.length;i+=3){
+      if(stopFlag) break;
+      progress(true,`Gemini가 영상을 보는 중 · ${Math.min(i+3,q.length)}/${q.length}  (최근 7일 영상 먼저)`, i/q.length);
+      try{ done += await analyzeVideos(q.slice(i,i+3)); }
+      catch(e){ if(e.status===429){ toast(e.message,true); break; } if(e.status===400&&q.slice(i,i+3).length>1){ for(const v of q.slice(i,i+3)){ try{ done+=await analyzeVideos([v]); }catch(e2){ console.warn(v.id,e2.message);} } } else { toast(e.message,true); if(e.status===404||e.status===401||e.status===403) break; } }
+      renderAll();
+    }
+  } finally { progress(false); toast(`${done}개 영상을 분석했습니다 · 남은 영상 ${pendingQueue().length}개`); renderAll(); }
+}
+
+function dataForLLM(){
+  const {list}=rows(); const st=channelStats(7);
+  const top=[...list].sort((a,b)=>b.gain-a.gain).slice(0,12);
+  const L=["# 최근 하루 조회수 증가 상위 쇼츠"];
+  top.forEach(r=>L.push(`- video_id=${r.id} | [${r.chName}] ${r.title} | 하루 +${Math.round(r.gain).toLocaleString()} | 누적 ${r.views.toLocaleString()} | 채널 평소의 ${r.outlier.toFixed(1)}배 | ${r.sec}초 | 훅: ${r.a?`${r.a.hook_type} / ${r.a.hook}`:"미분석"} | 이유: ${r.a?.why_it_works||"미분석"}`));
+  L.push("\n# 채널별 최근 7일");
+  st.forEach(c=>L.push(`- ${c.name}: 구독자 ${c.subs.toLocaleString()} | 업로드 ${c.n}개 | 중앙값 조회수 ${Math.round(c.med).toLocaleString()} | 히트(평소 3배+) ${c.hits}개`));
+  const hits=list.filter(r=>r.a).sort((a,b)=>b.outlier-a.outlier).slice(0,15);
+  if(hits.length){ L.push("\n# 분석된 고성과 쇼츠"); hits.forEach(r=>L.push(`- [${r.chName}] ${r.title} | ${r.outlier.toFixed(1)}배 | ${r.a.hook_type} | ${r.a.emotion} | ${r.a.structure}`)); }
+  return L.join("\n");
+}
+
+const BRIEF_SCHEMA = T.O({ headline:T.S, rising:T.A(T.O({video_id:T.S, reason:T.S})), channel_notes:T.A(T.S), insights:T.A(T.S), ideas:T.A(T.O({title:T.S, hook:T.S})) });
+async function makeBriefing(){
+  if(S.demo){ toast("예시 데이터에서는 만들 수 없습니다.",true); return; }
+  progress(true,"Gemini가 오늘 브리핑을 쓰는 중…",.5);
+  try{
+    const data = await gemini({parts:[{text:dataForLLM()}], temperature:0.5, schema:BRIEF_SCHEMA,
+      system:`당신은 명언·지혜 쇼츠 채널 운영을 돕는 데이터 분석가입니다. 경쟁 채널 데이터를 보고 한국어로 짧은 브리핑을 만듭니다.
+headline: 오늘 가장 중요한 한 문장. rising: 주목할 급상승 영상 3개(video_id는 데이터의 값 그대로)와 잘 된 이유 한 줄.
+channel_notes: 채널 동향 2~3개. insights: 바로 쓸 수 있는 인사이트 3개. ideas: 지금 반응 좋은 패턴을 쓴 새 쇼츠 주제 2개.
+데이터에 없는 숫자는 쓰지 말고 군더더기 없이 쓰세요.`});
+    S.reports.briefing={at:Date.now(),data}; save("reports"); renderAll();
+  }catch(e){ toast(e.message,true); } finally{ progress(false); }
+}
+const PATTERN_SCHEMA = T.O({ summary:T.S, traits:T.A(T.O({title:T.S, detail:T.S, evidence:T.S})), vs_low:T.S, channels:T.A(T.O({channel:T.S, note:T.S})), formats:T.A(T.O({title:T.S, hook:T.S, why:T.S})) });
+async function makePatternReport(){
+  const {list}=rows(); const a=list.filter(r=>r.a).sort((x,y)=>y.outlier-x.outlier);
+  if(a.length<5){ toast("분석된 영상이 5개 이상 필요합니다. 먼저 AI 분석을 실행해 주세요.",true); return; }
+  if(S.demo){ toast("예시 데이터에서는 만들 수 없습니다.",true); return; }
+  const sample=[...a.slice(0,30),...a.slice(-10)];
+  const txt=sample.map(r=>`- [${r.chName}] ${r.title} | 조회수 ${r.views.toLocaleString()} | 채널 평소의 ${r.outlier.toFixed(1)}배 | ${r.sec}초 | 훅(${r.a.hook_type}): ${r.a.hook} | 구조: ${r.a.structure} | 감정: ${r.a.emotion} | 자막: ${r.a.text_overlay} | 음성: ${r.a.audio} | 이유: ${r.a.why_it_works}`).join("\n");
+  progress(true,"Gemini가 인기 요소를 정리하는 중…",.5);
+  try{
+    const data=await gemini({parts:[{text:txt}], temperature:0.4, schema:PATTERN_SCHEMA,
+      system:`아래는 경쟁 쇼츠 채널들의 분석 데이터입니다(위쪽이 성과 상위, 아래 10개가 하위). '무엇이 조회수를 만드는가'를 한국어로 정리하세요.
+summary: 한 문단 요약. traits: 상위 영상의 공통점 4~6개(제목, 설명, 근거가 된 영상 제목과 배수). vs_low: 하위 영상과의 차이. channels: 채널별 차별점 한 줄씩. formats: 지금 만들면 좋을 주제·포맷 5개.
+모든 주장은 데이터에 근거하세요.`});
+    S.reports.pattern={at:Date.now(),data,n:a.length}; save("reports"); renderAll();
+  }catch(e){ toast(e.message,true); } finally{ progress(false); }
+}
+const SCRIPT_SCHEMA = T.O({ scripts:T.A(T.O({ title:T.S, hook_type:T.S, emotion:T.S, reference:T.S, duration:T.S,
+  scenes:T.A(T.O({time:T.S, visual:T.S, caption:T.S, narration:T.S})), titles:T.A(T.S), hashtags:T.A(T.S), pinned_comment:T.S })) });
+const IDEAS_SCHEMA = T.O({ ideas:T.A(T.O({title:T.S, hook:T.S, pattern:T.S})) });
+function referenceText(chNames,n=12){
+  const {list}=rows(); let a=list.filter(r=>r.a); if(chNames.length) a=a.filter(r=>chNames.includes(r.chName));
+  const byHook={}; a.forEach(r=>(byHook[r.a.hook_type] ||= []).push(r.outlier));
+  const hooks=Object.entries(byHook).map(([k,v])=>[k,mean(v)]).sort((x,y)=>y[1]-x[1]).slice(0,5);
+  const top=[...a].sort((x,y)=>y.outlier-x.outlier).slice(0,n);
+  const L=["# 훅 유형별 평균 성과(채널 평소 대비 배수)",...hooks.map(([k,v])=>`- ${k}: ${v.toFixed(2)}배`),"\n# 고성과 쇼츠 분석과 대사"];
+  top.forEach(r=>L.push(`## [${r.chName}] ${r.title}\n- 조회수 ${r.views.toLocaleString()} · ${r.outlier.toFixed(1)}배 · ${r.sec}초\n- 훅(${r.a.hook_type}): ${r.a.hook}\n- 구조: ${r.a.structure}\n- 감정: ${r.a.emotion}\n- 자막 스타일: ${r.a.text_overlay}\n- 음성/음악: ${r.a.audio}\n- 대사: ${(r.a.transcript||"").slice(0,800)}`));
+  return {text:L.join("\n"), n:top.length};
+}
+const SCRIPT_SYSTEM = `당신은 조회수 상위권 한국 명언·인생 지혜 쇼츠 채널들의 대본 작가입니다.
+사용자가 주는 경쟁 채널 고성과 쇼츠의 분석과 대사에서 훅·구조·문장 길이·말투·자막 스타일을 배워, 사용자의 아이디어로 같은 스타일의 새 쇼츠 대본을 씁니다.
+- 참고 대사를 그대로 베끼지 말고 구조와 리듬만 가져오세요.
+- 첫 1~2초에 스크롤을 멈추게 하는 훅. 성과 좋은 훅 유형을 우선 쓰세요.
+- 내레이션은 1초에 4~5글자 기준으로 요청한 길이에 맞추세요.
+- 자막은 한 화면 1~2줄, 줄당 12자 안팎.
+- 마지막은 저장·공유·댓글을 부르는 한 줄.
+reference에는 어떤 고성과 영상의 어떤 요소를 참고했는지 적고, scenes는 시간대별(예: 0-2초)로 나눕니다. titles 3개, hashtags 5개, pinned_comment 1개.`;
+
+/* ───────────────── 렌더링 ───────────────── */
+function vcard(r,i){
+  return `<button class="vcard" data-vid="${r.id}" type="button">
+    <div class="thumb">${r.thumb?`<img loading="lazy" src="${esc(r.thumb)}" alt="">`:""}
+      ${i!=null?`<span class="rank">${i+1}</span>`:""}
+      <div class="gain"><b>+${fmt(r.gain)}${r.gainEst?"*":""}</b>${r.outlier>=3?`<span class="chip hit">${r.outlier.toFixed(1)}배</span>`:""}</div></div>
+    <div class="vbody"><div class="vtitle">${esc(r.title)}</div>
+      <div class="vmeta"><span>${esc(r.chName)}</span>·<span class="num">${fmt(r.views)}</span>·<span>${fmtDate(r.pub)}</span></div></div></button>`;
+}
+function emptyData(){
+  return `<div class="panel empty"><h3>아직 불러온 데이터가 없습니다</h3><p>설정에서 유튜브 API 키를 넣고 <b>새로고침</b>을 누르면 채널들의 쇼츠를 불러옵니다.</p>
+    <a class="btn primary" href="#settings">설정 열기</a></div>`;
+}
+function renderBanner(){
+  const b=$("#banner");
+  if(S.demo) b.innerHTML=`<div class="notice warn" style="margin-bottom:20px"><b>예시 화면</b><span>지금 보이는 채널과 숫자는 화면 구성을 보여주기 위한 가짜 데이터입니다. <a href="#settings">설정</a>에서 API 키를 넣고 새로고침하면 등록한 채널의 실제 데이터로 바뀝니다.</span></div>`;
+  else if(S.data?.errors?.length) b.innerHTML=`<div class="notice err" style="margin-bottom:20px"><b>일부 채널 문제</b><span>${S.data.errors.map(esc).join("<br>")}</span></div>`;
+  else b.innerHTML="";
+  const D=S.data;
+  $("#status").textContent = D? `${S.demo?"예시 데이터":"갱신 "+ago(D.fetchedAt)} · ${Object.keys(D.channels).length}개 채널 · 쇼츠 ${Object.keys(D.videos).length}개` : "데이터 없음";
+}
+
+function renderOverview(){
+  const el=$("#view-overview"); const {list}=rows();
+  if(!list.length){ el.innerHTML=emptyData(); return; }
+  const recent=list.filter(r=>r.age<=RECENT_DAYS), analyzed=list.filter(r=>r.a).length;
+  const hot=list.filter(r=>r.age<=14).sort((a,b)=>b.gain-a.gain).slice(0,10);
+  const st=channelStats(7);
+  const B=S.reports.briefing;
+  el.innerHTML=`
+  <div class="kpis">
+    <div class="kpi"><div class="label">추적 채널</div><div class="v">${rows().channels.length}</div><div class="d">설정에서 추가·제외</div></div>
+    <div class="kpi"><div class="label">최근 7일 업로드</div><div class="v">${recent.length}</div><div class="d">전체 쇼츠 ${list.length}개 중</div></div>
+    <div class="kpi"><div class="label">7일 히트</div><div class="v">${recent.filter(r=>r.outlier>=3).length}</div><div class="d">채널 평소의 3배 이상</div></div>
+    <div class="kpi"><div class="label">AI 분석</div><div class="v">${analyzed}<span style="font-size:15px;color:var(--fg-3)">/${list.length}</span></div><div class="d">${analyzed<list.length?`<a href="#patterns">이어서 분석하기</a>`:"모두 완료"}</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>오늘의 AI 브리핑</h2><div class="sub">${B?`${new Date(B.at).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} 작성 · Gemini`:"아직 없음"}</div></div>
+      <button class="btn primary" id="briefBtn" type="button">${B?"다시 만들기":"브리핑 만들기"}</button></div>
+    ${B?briefingHTML(B.data):`<p class="sub">현재 데이터와 분석 결과를 바탕으로 급상승 이유, 채널 동향, 오늘 쓸 주제를 정리합니다.</p>`}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>지금 뜨는 쇼츠</h2><div class="sub">최근 14일 업로드 · 하루 조회수 증가 순 (*는 기록이 하루치뿐이라 추정값)</div></div>
+      <a class="btn" href="#ranking">전체 순위</a></div>
+    <div class="vgrid">${hot.map(vcard).join("")}</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>채널별 최근 7일</h2><div class="sub">중앙값 조회수 = 영상 하나가 보통 얻는 조회수</div></div><a class="btn" href="#channels">채널 비교</a></div>
+    <div class="bars">${barRows(st.map(c=>[c.name,c.med,`${fmt(c.med)}`]),false)}</div>
+  </div>`;
+  $("#briefBtn").onclick=makeBriefing;
+}
+function briefingHTML(d){
+  const {list}=rows(); const byId=Object.fromEntries(list.map(r=>[r.id,r]));
+  return `<div class="ai">
+    <div class="headline">${esc(d.headline)}</div>
+    ${d.rising?.length?`<div class="vgrid">${d.rising.map(x=>byId[x.video_id]?`<div style="display:grid;gap:8px;align-content:start">${vcard(byId[x.video_id])}<div class="sub" style="color:var(--fg-2)">${esc(x.reason)}</div></div>`:"").join("")}</div>`:""}
+    <div class="cols">
+      <div class="box"><h4>채널 동향</h4><ul>${(d.channel_notes||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div class="box"><h4>바로 쓸 인사이트</h4><ul>${(d.insights||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>
+    </div>
+    ${d.ideas?.length?`<div><div class="label" style="margin-bottom:8px">오늘의 추천 주제</div><div style="display:grid;gap:8px">${d.ideas.map(i=>`<div class="idea"><b>${esc(i.title)}</b><span>${esc(i.hook)}</span></div>`).join("")}</div></div>`:""}
+  </div>`;
+}
+function barRows(items,hit){ const max=Math.max(1,...items.map(i=>i[1])); return items.map(([n,v,lab])=>`<div class="bar"><span class="n">${esc(n)}</span><div class="track"><div class="fill${hit?" hitc":""}" style="width:${(v/max*100).toFixed(1)}%"></div></div><span class="v">${lab}</span></div>`).join(""); }
+
+const RANK = {ch:"",days:30,sort:"gain",q:""};
+const SORTS = {gain:["하루 조회수 증가 (지금 뜨는)",r=>r.gain], outlier:["채널 평소 대비 배수",r=>r.outlier], views:["누적 조회수",r=>r.views], vpd:["하루 평균 조회수",r=>r.vpd], eng:["참여율",r=>r.eng]};
+function renderRanking(){
+  const el=$("#view-ranking"); const {list,channels}=rows();
+  if(!list.length){ el.innerHTML=emptyData(); return; }
+  el.innerHTML=`<div class="panel">
+    <div class="panel-head"><div><h2>인기 순위</h2><div class="sub">'평소 대비'는 그 채널 최근 쇼츠 중앙값의 몇 배인지입니다. 3배 이상이면 히트로 표시합니다.</div></div></div>
+    <div class="filters">
+      <label class="field"><span>검색</span><input type="text" id="rq" placeholder="제목에 들어간 단어" value="${esc(RANK.q)}"></label>
+      <label class="field"><span>채널</span><select id="rch"><option value="">전체 채널</option>${channels.map(c=>`<option ${RANK.ch===c.id?"selected":""} value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+      <label class="field"><span>업로드 기간</span><select id="rdays">${[7,14,30,90,3650].map(d=>`<option ${RANK.days==d?"selected":""} value="${d}">${d>1000?"전체":"최근 "+d+"일"}</option>`).join("")}</select></label>
+      <label class="field"><span>정렬</span><select id="rsort">${Object.entries(SORTS).map(([k,[l]])=>`<option ${RANK.sort===k?"selected":""} value="${k}">${l}</option>`).join("")}</select></label>
+    </div></div>
+    <div class="panel" style="padding:8px"><div class="rlist" id="rlist"></div></div>`;
+  const draw=()=>{
+    let v=list.filter(r=>r.age<=RANK.days && (!RANK.ch||r.ch===RANK.ch) && (!RANK.q||r.title.toLowerCase().includes(RANK.q.toLowerCase())));
+    v.sort((a,b)=>SORTS[RANK.sort][1](b)-SORTS[RANK.sort][1](a)); v=v.slice(0,150);
+    $("#rlist").innerHTML = `<div class="rrow rhead"><span></span><span></span><span>${v.length}개</span><span class="m">하루 증가</span><span class="m">조회수</span><span class="m">평소 대비</span><span class="m">참여율</span></div>`+
+      (v.length? v.map((r,i)=>`<button class="rrow" type="button" data-vid="${r.id}"><span class="no">${i+1}</span><span class="rt">${r.thumb?`<img loading="lazy" src="${esc(r.thumb)}" alt="">`:""}</span>
+        <span class="tt"><div>${esc(r.title)}</div><div class="vmeta"><span>${esc(r.chName)}</span>·<span>${fmtDate(r.pub)}</span>·<span>${dur(r.sec)}</span>${r.a?`<span class="chip acc">${esc(r.a.hook_type)}</span>`:""}</div></span>
+        <span class="m">+${fmt(r.gain)}${r.gainEst?"*":""}<small>하루</small></span><span class="m opt">${fmt(r.views)}<small>조회수</small></span>
+        <span class="m opt">${outlierChip(r.outlier)}</span><span class="m opt">${pct(r.eng)}<small>참여율</small></span></button>`).join("") : `<div class="empty">조건에 맞는 쇼츠가 없습니다.</div>`);
+  };
+  draw();
+  $("#rq").oninput=e=>{RANK.q=e.target.value;draw()};
+  $("#rch").onchange=e=>{RANK.ch=e.target.value;draw()};
+  $("#rdays").onchange=e=>{RANK.days=+e.target.value;draw()};
+  $("#rsort").onchange=e=>{RANK.sort=e.target.value;draw()};
+}
+
+let CH_DAYS=30;
+function renderChannels(){
+  const el=$("#view-channels"); if(!rows().list.length){ el.innerHTML=emptyData(); return; }
+  const st=channelStats(CH_DAYS);
+  el.innerHTML=`<div class="panel">
+    <div class="panel-head"><div><h2>채널 비교</h2><div class="sub">채널 이름을 누르면 그 채널의 순위로 이동합니다.</div></div>
+      <div class="row">${[7,30,90].map(d=>`<button class="pill" type="button" data-days="${d}" aria-pressed="${CH_DAYS===d}">최근 ${d}일</button>`).join("")}</div></div>
+    <div class="scroll-x"><table><thead><tr><th>채널</th><th>구독자</th><th>업로드</th><th>주당</th><th>중앙값 조회수</th><th>최고 조회수</th><th>히트</th><th>참여율</th><th>평균 길이</th></tr></thead>
+    <tbody>${st.map(c=>`<tr data-ch="${c.id}"><td><b>${esc(c.name)}</b></td><td class="num">${c.hiddenSubs?"비공개":fmt(c.subs)}</td><td class="num">${c.n}</td><td class="num">${c.perWeek.toFixed(1)}</td>
+      <td class="num">${fmt(c.med)}</td><td class="num">${fmt(c.max)}</td><td class="num">${c.hits}</td><td class="num">${c.n?pct(c.eng):"-"}</td><td class="num">${c.n?Math.round(c.sec)+"초":"-"}</td></tr>`).join("")}</tbody></table></div></div>
+  <div class="grid2">
+    <div class="panel"><h3>중앙값 조회수</h3><div class="sub" style="margin-bottom:12px">영상 하나가 보통 얻는 조회수</div><div class="bars">${barRows(st.map(c=>[c.name,c.med,fmt(c.med)]))}</div></div>
+    <div class="panel"><h3>히트 영상 수</h3><div class="sub" style="margin-bottom:12px">채널 평소의 3배 이상 나온 쇼츠</div><div class="bars">${barRows([...st].sort((a,b)=>b.hits-a.hits).map(c=>[c.name,c.hits,c.hits+"개"]),true)}</div></div>
+    <div class="panel"><h3>주당 업로드</h3><div class="sub" style="margin-bottom:12px">업로드 빈도</div><div class="bars">${barRows([...st].sort((a,b)=>b.perWeek-a.perWeek).map(c=>[c.name,c.perWeek,c.perWeek.toFixed(1)+"개"]))}</div></div>
+    <div class="panel"><h3>구독자</h3><div class="sub" style="margin-bottom:12px">현재 구독자 수</div><div class="bars">${barRows([...st].sort((a,b)=>b.subs-a.subs).map(c=>[c.name,c.subs,c.hiddenSubs?"비공개":fmt(c.subs)]))}</div></div>
+  </div>`;
+  el.querySelectorAll("[data-days]").forEach(b=>b.onclick=()=>{CH_DAYS=+b.dataset.days;renderChannels()});
+  el.querySelectorAll("tr[data-ch]").forEach(tr=>tr.onclick=()=>{RANK.ch=tr.dataset.ch;location.hash="ranking"});
+}
+
+function groupStats(a,key){
+  const g={}; a.forEach(r=>{ const k=typeof key==="function"?key(r):r.a[key]; if(k) (g[k] ||= []).push(r); });
+  return Object.entries(g).map(([k,v])=>({k,n:v.length,avg:mean(v.map(r=>r.outlier)),hit:v.filter(r=>r.outlier>=3).length/v.length,med:median(v.map(r=>r.views))})).sort((x,y)=>y.avg-x.avg);
+}
+function statTable(rowsArr,title){
+  if(!rowsArr.length) return "";
+  const max=Math.max(...rowsArr.map(r=>r.avg),1);
+  return `<div class="panel"><h3>${title}</h3><div class="sub" style="margin-bottom:12px">막대 = 채널 평소 대비 평균 배수</div>
+    <div class="bars">${rowsArr.map(r=>`<div class="bar"><span class="n">${esc(r.k)} <span class="sub">${r.n}</span></span><div class="track"><div class="fill${r.avg>=2?" hitc":""}" style="width:${(r.avg/max*100).toFixed(1)}%"></div></div><span class="v">${r.avg.toFixed(2)}배</span></div>`).join("")}</div></div>`;
+}
+function renderPatterns(){
+  const el=$("#view-patterns"); const {list}=rows();
+  if(!list.length){ el.innerHTML=emptyData(); return; }
+  const a=list.filter(r=>r.a), pend=pendingQueue(), pendRecent=pend.filter(r=>r.age<=RECENT_DAYS).length;
+  const lenKey=r=> r.sec<=20?"20초 이하":r.sec<=30?"21~30초":r.sec<=45?"31~45초":r.sec<=60?"46~60초":r.sec<=90?"61~90초":"91초 이상";
+  const kw={}; a.filter(r=>r.outlier>=1.5).forEach(r=>(r.a.keywords||[]).forEach(k=>kw[k]=(kw[k]||0)+1));
+  const kws=Object.entries(kw).sort((x,y)=>y[1]-x[1]).slice(0,24);
+  const P=S.reports.pattern;
+  el.innerHTML=`<div class="panel">
+    <div class="panel-head"><div><h2>AI 영상 분석</h2><div class="sub">Gemini가 쇼츠를 직접 보고 훅·구조·자막·음성을 분석합니다. 한 번 분석한 영상은 저장되어 다시 쓰지 않습니다.</div></div>
+      <button class="btn primary" id="batchBtn" type="button" ${pend.length?"":"disabled"}>${pend.length?`다음 ${Math.min(pend.length,S.settings.batchPerClick)}개 분석`:"모두 분석됨"}</button></div>
+    <div class="row"><span class="chip acc">분석 완료 ${a.length}</span><span class="chip">남은 영상 ${pend.length}</span>${pendRecent?`<span class="chip up">그중 최근 7일 ${pendRecent}개 먼저</span>`:""}</div>
+    <div class="ptrack" style="height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:12px"><div style="height:100%;width:${(a.length/list.length*100).toFixed(1)}%;background:var(--accent)"></div></div>
+  </div>
+  ${a.length? `
+  <div class="grid2">${statTable(groupStats(a,"hook_type"),"훅 유형별 성과")}${statTable(groupStats(a,"emotion").slice(0,10),"감정 트리거별 성과")}
+    ${statTable(groupStats(a,lenKey),"길이별 성과")}${statTable(groupStats(a,"pacing"),"템포별 성과")}</div>
+  ${kws.length?`<div class="panel"><h3>잘 된 쇼츠의 키워드</h3><div class="sub" style="margin-bottom:12px">평소 1.5배 이상 나온 쇼츠에서 자주 나온 순</div><div class="pills">${kws.map(([k,n])=>`<span class="chip">${esc(k)} <span class="num">${n}</span></span>`).join("")}</div></div>`:""}
+  <div class="panel"><div class="panel-head"><div><h2>AI 인기 요소 리포트</h2><div class="sub">${P?`${new Date(P.at).toLocaleDateString("ko-KR")} · 분석 영상 ${P.n}개 기준`:"분석된 영상 전체를 보고 무엇이 조회수를 만드는지 정리합니다"}</div></div>
+    <button class="btn primary" id="patBtn" type="button">${P?"최신 데이터로 다시 만들기":"리포트 만들기"}</button></div>
+    ${P?patternHTML(P.data):""}</div>`
+  : `<div class="panel empty">아직 분석된 영상이 없습니다. 위의 <b>분석</b> 버튼을 누르면 성과 좋은 영상부터 분석합니다.</div>`}`;
+  $("#batchBtn").onclick=runBatchAnalysis;
+  const pb=$("#patBtn"); if(pb) pb.onclick=makePatternReport;
+}
+function patternHTML(d){
+  return `<div class="ai"><p style="margin:0">${esc(d.summary)}</p>
+    <div class="cols">${(d.traits||[]).map(t=>`<div class="box"><h4>${esc(t.title)}</h4><div>${esc(t.detail)}</div><div class="aimeta" style="margin-top:6px">근거: ${esc(t.evidence)}</div></div>`).join("")}</div>
+    ${d.vs_low?`<div class="box"><h4>성과 낮은 영상과의 차이</h4><div>${esc(d.vs_low)}</div></div>`:""}
+    ${d.channels?.length?`<div><div class="label" style="margin-bottom:8px">채널별 차별점</div><dl class="kv">${d.channels.map(c=>`<dt>${esc(c.channel)}</dt><dd>${esc(c.note)}</dd>`).join("")}</dl></div>`:""}
+    ${d.formats?.length?`<div><div class="label" style="margin-bottom:8px">지금 만들면 좋을 포맷</div><div style="display:grid;gap:8px">${d.formats.map(f=>`<div class="idea"><b>${esc(f.title)}</b><span>훅: ${esc(f.hook)}</span><span>${esc(f.why)}</span></div>`).join("")}</div></div>`:""}</div>`;
+}
+
+const SC = {chs:[], idea:"", len:45, count:2, extra:"", last:null};
+function renderScript(){
+  const el=$("#view-script"); const {list}=rows(); const a=list.filter(r=>r.a);
+  const chNames=[...new Set(a.map(r=>r.chName))];
+  el.innerHTML=`<div class="panel">
+    <div class="panel-head"><div><h2>대본 생성</h2><div class="sub">분석해 둔 고성과 쇼츠의 훅·구조·대사를 참고해 같은 스타일로 씁니다. ${a.length?`참고 가능한 분석 ${a.length}개`:"먼저 인기 요소 탭에서 AI 분석을 실행해 주세요."}</div></div></div>
+    <div style="display:grid;gap:14px">
+      <label class="field"><span>아이디어</span><textarea id="sIdea" rows="3" placeholder="예) 나이 들수록 조용히 멀어지는 사람들의 특징">${esc(SC.idea)}</textarea></label>
+      <div class="field"><span>스타일을 참고할 채널 <span class="sub">(안 고르면 전체)</span></span><div class="pills" id="sChs">${chNames.map(n=>`<button type="button" class="pill" data-n="${esc(n)}" aria-pressed="${SC.chs.includes(n)}">${esc(n)}</button>`).join("")||`<span class="sub">분석된 채널이 없습니다</span>`}</div></div>
+      <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <label class="field"><span>길이</span><select id="sLen">${[30,45,60,90].map(s=>`<option ${SC.len==s?"selected":""} value="${s}">${s}초</option>`).join("")}</select></label>
+        <label class="field"><span>대본 개수</span><select id="sCnt">${[1,2,3].map(s=>`<option ${SC.count==s?"selected":""} value="${s}">${s}개</option>`).join("")}</select></label>
+        <label class="field" style="grid-column:span 2"><span>추가 요청 <span class="sub">(선택)</span></span><input type="text" id="sExtra" placeholder="예) 반말 톤, 마지막에 반전" value="${esc(SC.extra)}"></label>
+      </div>
+      <div class="row"><button class="btn primary" id="sGo" type="button">대본 쓰기</button><button class="btn" id="sIdeas" type="button">아이디어 10개 추천받기</button></div>
+    </div></div>
+  <div id="sOut">${SC.last?scriptOut(SC.last):""}</div>
+  ${S.scripts.length?`<div class="panel"><h3 style="margin-bottom:6px">지난 대본</h3>${S.scripts.slice(0,20).map((s,i)=>`<details class="hist"><summary>${new Date(s.at).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} · ${esc(s.idea.slice(0,50))}</summary><div style="margin-top:12px">${scriptOut(s)}</div></details>`).join("")}</div>`:""}`;
+  $("#sIdea").oninput=e=>SC.idea=e.target.value; $("#sExtra").oninput=e=>SC.extra=e.target.value;
+  $("#sLen").onchange=e=>SC.len=+e.target.value; $("#sCnt").onchange=e=>SC.count=+e.target.value;
+  el.querySelectorAll("#sChs .pill").forEach(p=>p.onclick=()=>{ const n=p.dataset.n; SC.chs=SC.chs.includes(n)?SC.chs.filter(x=>x!==n):[...SC.chs,n]; p.setAttribute("aria-pressed",SC.chs.includes(n)); });
+  $("#sGo").onclick=writeScripts; $("#sIdeas").onclick=suggestIdeas;
+  el.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>copyScript(b));
+}
+function scriptOut(s){
+  if(s.ideas) return `<div class="panel"><h3 style="margin-bottom:12px">추천 아이디어</h3><div style="display:grid;gap:8px">${s.ideas.map(i=>`<div class="idea"><b>${esc(i.title)}</b><span>훅: ${esc(i.hook)}</span><span class="aimeta">참고 패턴: ${esc(i.pattern)}</span></div>`).join("")}</div></div>`;
+  return `<div style="display:grid;gap:14px">${(s.scripts||[]).map((x,i)=>`<div class="script">
+    <div class="panel-head" style="margin:0"><div><div class="label">대본 ${i+1} · ${esc(x.duration)}</div><h2 style="margin-top:4px">${esc(x.title)}</h2></div><button class="btn" type="button" data-copy="${i}">복사</button></div>
+    <div class="row"><span class="chip acc">${esc(x.hook_type)}</span><span class="chip">${esc(x.emotion)}</span></div>
+    <div class="sub">참고: ${esc(x.reference)}</div>
+    <div class="scroll-x"><table><thead><tr><th>시간</th><th>화면</th><th>자막</th><th>내레이션</th></tr></thead><tbody>${(x.scenes||[]).map(c=>`<tr><td>${esc(c.time)}</td><td>${esc(c.visual)}</td><td><b>${esc(c.caption)}</b></td><td>${esc(c.narration)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="cols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+      <div><div class="label">제목 후보</div><ul style="margin:6px 0 0;padding-left:18px">${(x.titles||[]).map(t=>`<li>${esc(t)}</li>`).join("")}</ul></div>
+      <div><div class="label">해시태그</div><div style="margin-top:6px">${(x.hashtags||[]).map(t=>esc(t.startsWith("#")?t:"#"+t)).join(" ")}</div></div>
+      <div><div class="label">고정 댓글</div><div style="margin-top:6px">${esc(x.pinned_comment)}</div></div>
+    </div></div>`).join("")}</div>`;
+}
+function copyScript(btn){
+  const host=btn.closest(".script"); const txt=host.innerText.replace(/^복사\s*/m,"");
+  navigator.clipboard.writeText(txt).then(()=>toast("대본을 복사했습니다."),()=>toast("복사하지 못했습니다. 직접 선택해서 복사해 주세요.",true));
+}
+async function writeScripts(){
+  if(!SC.idea.trim()){ toast("아이디어를 입력해 주세요.",true); return; }
+  if(S.demo){ toast("예시 데이터에서는 만들 수 없습니다.",true); return; }
+  const ref=referenceText(SC.chs);
+  progress(true,`고성과 쇼츠 ${ref.n}개를 참고해 대본을 쓰는 중…`,.5);
+  try{
+    const out=await gemini({system:SCRIPT_SYSTEM, schema:SCRIPT_SCHEMA, temperature:0.85, parts:[{text:`${ref.text}\n\n# 요청\n- 아이디어: ${SC.idea}\n- 길이: ${SC.len}초\n- 대본 ${SC.count}개, 서로 다른 훅 유형으로\n- 추가 요청: ${SC.extra||"없음"}`}]});
+    SC.last={at:Date.now(), idea:SC.idea, scripts:out.scripts||[]};
+    S.scripts.unshift(SC.last); S.scripts=S.scripts.slice(0,40); save("scripts"); renderScript();
+    $("#sOut").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(e){ toast(e.message,true); } finally{ progress(false); }
+}
+async function suggestIdeas(){
+  if(S.demo){ toast("예시 데이터에서는 만들 수 없습니다.",true); return; }
+  const ref=referenceText(SC.chs,20);
+  progress(true,"반응 좋은 패턴으로 주제를 고르는 중…",.5);
+  try{
+    const out=await gemini({schema:IDEAS_SCHEMA, temperature:0.95, parts:[{text:`${ref.text}\n\n위 고성과 패턴을 근거로, 위 영상들과 겹치지 않는 새 쇼츠 주제 10개를 제안하세요. title(제목), hook(첫 2초 훅 한 줄), pattern(참고한 패턴).`}]});
+    SC.last={ideas:out.ideas||[]}; renderScript();
+  }catch(e){ toast(e.message,true); } finally{ progress(false); }
+}
+
+function renderSettings(){
+  const el=$("#view-settings");
+  const usage=(()=>{ try{ let n=0; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.startsWith("sr.")) n+=(localStorage.getItem(k)||"").length; } return (n/1024/1024*2).toFixed(1); }catch{return "?"} })();
+  el.innerHTML=`<div class="panel">
+    <div class="panel-head"><div><h2>API 키</h2><div class="sub">키는 이 브라우저에만 저장되고 다른 곳으로 보내지지 않습니다. PC와 휴대폰에서 각각 한 번씩 넣어 주세요.</div></div></div>
+    <div class="grid2" style="gap:14px">
+      <label class="field"><span>YouTube Data API 키</span><input type="password" id="kYt" autocomplete="off" value="${esc(S.keys.yt)}" placeholder="AIza…"></label>
+      <label class="field"><span>Gemini API 키</span><input type="password" id="kGm" autocomplete="off" value="${esc(S.keys.gm)}" placeholder="AIza…"></label>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="btn primary" id="kSave" type="button">저장하고 불러오기</button><button class="btn ghost" id="kShow" type="button">키 보기</button></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>추적 채널</h2><div class="sub">한 줄에 하나씩 <b>이름 | 채널 주소</b>. 주소는 @핸들, 채널 URL, UC로 시작하는 ID 모두 됩니다.</div></div></div>
+    <textarea id="chText" rows="12" class="mono" style="font-size:13px">${esc(S.channels.map(c=>`${c.name} | ${c.url}`).join("\n"))}</textarea>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="chSave" type="button">채널 저장</button><button class="btn ghost" id="chReset" type="button">기본 12개 채널로 되돌리기</button></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>분석 설정</h2></div></div>
+    <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      <label class="field"><span>Gemini 모델</span><input type="text" id="sModel" value="${esc(S.settings.model)}"></label>
+      <label class="field"><span>채널당 가져올 쇼츠 수</span><input type="number" id="sPer" min="10" max="200" step="10" value="${S.settings.perChannel}"></label>
+      <label class="field"><span>한 번에 분석할 영상 수</span><input type="number" id="sBatch" min="3" max="60" step="3" value="${S.settings.batchPerClick}"></label>
+      <label class="field"><span>자동 새로고침 간격(시간)</span><input type="number" id="sAuto" min="0" max="48" value="${S.settings.autoHours}"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="setSave" type="button">설정 저장</button><button class="btn" id="listModels" type="button">사용 가능한 모델 확인</button></div>
+    <div id="modelList" class="sub" style="margin-top:10px"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h2>데이터 옮기기 · 정리</h2><div class="sub">분석 결과는 이 브라우저에 저장됩니다 (약 ${usage}MB 사용 중). PC에서 분석한 결과를 휴대폰에서 보려면 백업 파일로 옮기세요.</div></div></div>
+    <div class="row">
+      <button class="btn" id="exp" type="button">백업 파일 받기</button>
+      <label class="btn" for="impFile">백업 파일 불러오기</label><input type="file" id="impFile" accept="application/json,.json" hidden>
+      <button class="btn danger" id="clrA" type="button">AI 분석 기록 지우기</button>
+      <button class="btn danger" id="clrAll" type="button">전부 초기화</button>
+    </div>
+    <div id="confirmBox" style="margin-top:12px"></div>
+  </div>`;
+  $("#kShow").onclick=()=>{ ["#kYt","#kGm"].forEach(s=>$(s).type=$(s).type==="password"?"text":"password"); };
+  $("#kSave").onclick=()=>{ S.keys={yt:$("#kYt").value.trim(),gm:$("#kGm").value.trim()}; save("keys"); toast("키를 저장했습니다."); if(S.keys.yt) refreshData(); };
+  $("#chSave").onclick=()=>{
+    const lines=$("#chText").value.split("\n").map(l=>l.trim()).filter(Boolean);
+    const old=Object.fromEntries(S.channels.map(c=>[c.url,c.id]));
+    S.channels=lines.map(l=>{ const [n,...u]=l.split("|"); const url=(u.join("|")||n).trim(); return {name:(u.length?n:"").trim()||url, url, id:old[url]}; });
+    save("channels"); toast(`채널 ${S.channels.length}개를 저장했습니다. 새로고침하면 반영됩니다.`);
+  };
+  $("#chReset").onclick=()=>{ $("#chText").value=DEFAULT_CHANNELS.map(c=>`${c.name} | ${c.url}`).join("\n"); toast("채널 저장을 눌러야 적용됩니다."); };
+  $("#setSave").onclick=()=>{ S.settings={...S.settings, model:$("#sModel").value.trim()||DEFAULT_SETTINGS.model, perChannel:Math.min(200,Math.max(10,+$("#sPer").value||50)), batchPerClick:Math.min(60,Math.max(3,+$("#sBatch").value||15)), autoHours:Math.max(0,+$("#sAuto").value||0)}; save("settings"); toast("설정을 저장했습니다."); };
+  $("#listModels").onclick=async()=>{
+    if(!S.keys.gm){ toast("Gemini 키를 먼저 저장해 주세요.",true); return; }
+    try{ const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",{headers:{"x-goog-api-key":S.keys.gm}}); const j=await r.json(); if(!r.ok) throw new Error(j.error?.message||r.status);
+      const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")&&/gemini/.test(m.name)).map(m=>m.name.replace("models/",""));
+      $("#modelList").innerHTML=`눌러서 선택: `+names.map(n=>`<button class="pill" type="button" data-m="${esc(n)}" style="margin:2px">${esc(n)}</button>`).join("");
+      $("#modelList").querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{$("#sModel").value=b.dataset.m; toast("설정 저장을 눌러야 적용됩니다.");});
+    }catch(e){ toast("모델 목록을 가져오지 못했습니다: "+e.message,true); }
+  };
+  $("#exp").onclick=()=>{
+    const blob=new Blob([JSON.stringify({v:1,channels:S.channels,settings:S.settings,analyses:S.analyses,reports:S.reports,scripts:S.scripts,snaps:S.snaps,data:S.data})],{type:"application/json"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`shorts-radar-backup-${kstDate()}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  };
+  $("#impFile").onchange=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    try{ const j=JSON.parse(await f.text());
+      if(j.channels) S.channels=j.channels; if(j.settings) S.settings={...S.settings,...j.settings};
+      S.analyses={...S.analyses,...(j.analyses||{})}; S.scripts=[...(j.scripts||[]),...S.scripts].slice(0,40);
+      S.reports={...S.reports,...(j.reports||{})}; S.snaps={...(j.snaps||{}),...S.snaps};
+      if(j.data && (!S.data || j.data.fetchedAt>S.data.fetchedAt)) { S.data=j.data; S.demo=false; }
+      ["channels","settings","analyses","scripts","reports","snaps","data"].forEach(save); computeCache=null; renderAll(); toast("백업을 불러왔습니다.");
+    }catch(err){ toast("백업 파일을 읽지 못했습니다.",true); }
+  };
+  const ask=(msg,fn)=>{ $("#confirmBox").innerHTML=`<div class="notice err"><span>${msg}</span><button class="btn danger" id="cYes" type="button">지우기</button><button class="btn" id="cNo" type="button">취소</button></div>`; $("#cYes").onclick=()=>{fn();$("#confirmBox").innerHTML=""}; $("#cNo").onclick=()=>$("#confirmBox").innerHTML=""; };
+  $("#clrA").onclick=()=>ask("저장된 AI 분석 결과와 리포트를 지울까요? 다시 분석하려면 Gemini 사용량을 다시 씁니다.",()=>{S.analyses={};S.reports={};save("analyses");save("reports");computeCache=null;renderAll();toast("분석 기록을 지웠습니다.");});
+  $("#clrAll").onclick=()=>ask("키, 채널, 데이터, 분석, 대본을 모두 지울까요?",()=>{ try{ Object.keys(localStorage).filter(k=>k.startsWith("sr.")).forEach(k=>localStorage.removeItem(k)); }catch{} location.reload(); });
+}
+
+/* ───────────────── 영상 상세 ───────────────── */
+function openDetail(id){
+  const r=rows().list.find(x=>x.id===id); if(!r) return;
+  const dates=Object.keys(S.snaps).sort().filter(d=>S.snaps[d][id]!=null);
+  const pts=dates.map(d=>S.snaps[d][id]);
+  const spark = pts.length>1 ? (()=>{ const mn=Math.min(...pts),mx=Math.max(...pts),w=300,h=60,p=4; const xy=pts.map((v,i)=>[p+i*(w-2*p)/(pts.length-1), h-p-(mx===mn?0.5:(v-mn)/(mx-mn))*(h-2*p)]);
+    return `<div><div class="label" style="margin-bottom:4px">조회수 기록 (${dates.length}일)</div><svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${xy.map(p=>p.join(",")).join(" ")}"/><circle cx="${xy.at(-1)[0]}" cy="${xy.at(-1)[1]}" r="3.5" fill="var(--accent)"/></svg></div>`; })() : "";
+  const a=r.a;
+  $("#detailBody").innerHTML=`<div class="close"><button class="btn ghost" type="button" id="dClose" aria-label="닫기">닫기 ✕</button></div>
+  <div class="dlg-grid">
+    <div style="display:grid;gap:12px;align-content:start">
+      <a class="dthumb" href="https://www.youtube.com/shorts/${r.id}" target="_blank" rel="noopener">${r.thumb?`<img src="${esc(r.thumb)}" alt="">`:""}<span class="play">▶ 유튜브에서 보기</span></a>
+      ${spark}
+    </div>
+    <div style="display:grid;gap:16px;align-content:start;min-width:0">
+      <div><div class="sub">${esc(r.chName)} · ${new Date(r.pub).toLocaleDateString("ko-KR")} · ${dur(r.sec)}</div><h2 style="margin-top:4px">${esc(r.title)}</h2></div>
+      <div class="mgrid"><div><b>${fmt(r.views)}</b><span>조회수</span></div><div><b>${r.outlier.toFixed(1)}배</b><span>채널 평소 대비</span></div><div><b>+${fmt(r.gain)}${r.gainEst?"*":""}</b><span>하루 증가</span></div><div><b>${pct(r.eng)}</b><span>참여율</span></div></div>
+      ${a? `<div class="ai">
+        <div class="row"><span class="chip acc">${esc(a.hook_type)}</span><span class="chip">${esc(a.emotion)}</span><span class="chip">템포 ${esc(a.pacing)}</span><span class="chip">훅 강도 ${a.score}/10</span></div>
+        <dl class="kv"><dt>주제</dt><dd>${esc(a.topic)}</dd><dt>첫 훅</dt><dd><b>${esc(a.hook)}</b></dd><dt>구조</dt><dd>${esc(a.structure)}</dd><dt>잘 된 이유</dt><dd>${esc(a.why_it_works)}</dd>
+          <dt>화면</dt><dd>${esc(a.visual_style)}</dd><dt>자막</dt><dd>${esc(a.text_overlay)}</dd><dt>음성·음악</dt><dd>${esc(a.audio)}</dd><dt>마무리</dt><dd>${esc(a.cta)}</dd></dl>
+        ${a.keywords?.length?`<div class="pills">${a.keywords.map(k=>`<span class="chip">${esc(k)}</span>`).join("")}</div>`:""}
+        <details><summary style="cursor:pointer;font-weight:600">대사</summary><p style="white-space:pre-wrap;margin:8px 0 0">${esc(a.transcript)}</p></details>
+        <div class="row"><span class="aimeta">${new Date(a.at).toLocaleDateString("ko-KR")} 분석 · ${esc(a.model||"")}</span><button class="btn ghost" type="button" id="dAnalyze">다시 분석</button></div></div>`
+      : `<div class="notice"><span>아직 AI 분석 전입니다. Gemini가 영상을 직접 보고 훅·구조·자막·음성을 정리합니다.</span><button class="btn primary" type="button" id="dAnalyze">AI 분석</button></div>`}
+    </div></div>`;
+  $("#dClose").onclick=()=>$("#detail").close();
+  $("#dAnalyze").onclick=async()=>{
+    if(S.demo){ toast("예시 데이터에서는 분석할 수 없습니다.",true); return; }
+    const b=$("#dAnalyze"); b.disabled=true; b.innerHTML=`<span class="spin"></span> 영상을 보는 중…`;
+    try{ await analyzeVideos([r]); renderAll(); openDetail(id); }catch(e){ toast(e.message,true); b.disabled=false; b.textContent="AI 분석"; }
+  };
+  const d=$("#detail"); if(!d.open) d.showModal();
+}
+$("#detail").addEventListener("click",e=>{ if(e.target.id==="detail") e.target.close(); });
+document.addEventListener("click",e=>{ const v=e.target.closest("[data-vid]"); if(v && !e.target.closest("#detail .dlg-grid")) openDetail(v.dataset.vid); });
+
+/* ───────────────── 탭 · 시작 ───────────────── */
+const TABS=["overview","ranking","channels","patterns","script","settings"];
+const RENDER={overview:renderOverview,ranking:renderRanking,channels:renderChannels,patterns:renderPatterns,script:renderScript,settings:renderSettings};
+function current(){ const h=location.hash.slice(1); return TABS.includes(h)?h:"overview"; }
+function showTab(){
+  const t=current();
+  document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
+  TABS.forEach(x=>$("#view-"+x).hidden=x!==t);
+  RENDER[t](); window.scrollTo({top:0});
+  try{ localStorage.setItem("sr.tab",t) }catch{}
+}
+function renderAll(){ computeCache=null; renderBanner(); RENDER[current()](); }
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{ location.hash=b.dataset.tab; });
+window.addEventListener("hashchange",()=>{ renderBanner(); showTab(); });
+$("#refreshBtn").onclick=refreshData;
+
+/* 예시 데이터 (키가 없을 때 화면 구성을 보여주기 위한 가짜 값) */
+function demoData(){
+  let seed=7; const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  const names=["예시 채널 A","예시 채널 B","예시 채널 C","예시 채널 D","예시 채널 E"];
+  const topics=["나이 들수록 멀어지는 사람의 특징","돈이 모이는 사람의 아침 습관","말 한마디로 사람을 잃는 이유","혼자 있는 시간이 필요한 사람","절대 남에게 하면 안 되는 말","인생이 바뀌는 작은 습관 3가지","착한 사람이 손해 보는 이유","50대에 꼭 버려야 할 것","현명한 사람은 침묵한다","부자들이 절대 하지 않는 일"];
+  const pal=["#2c4a52","#3b3a5a","#5a3b3b","#3b5a40","#4a4a4a"];
+  const thumb=(i,t)=>"data:image/svg+xml;utf8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="${pal[i%5]}"/><text x="200" y="250" fill="#fff" font-size="30" font-family="sans-serif" text-anchor="middle" font-weight="700">${t.slice(0,9)}</text><text x="200" y="292" fill="#fff" font-size="30" font-family="sans-serif" text-anchor="middle" font-weight="700">${t.slice(9,18)}</text></svg>`);
+  const channels={}, videos={}, analyses={}, now=Date.now();
+  names.forEach((n,ci)=>{ const id="DEMO"+ci; channels[id]={id,name:n,subs:Math.round(20000+rnd()*280000),videoCount:300,uploads:""};
+    for(let k=0;k<16;k++){ const t=topics[Math.floor(rnd()*topics.length)]; const age=k*1.7+rnd(); const base=(3000+rnd()*20000)*(ci+1)*0.6; const hit=rnd()<0.12?4+rnd()*6:1;
+      const vid=`d${ci}_${k}`; videos[vid]={id:vid,ch:id,title:t,pub:new Date(now-age*864e5).toISOString(),sec:Math.round(25+rnd()*40),thumb:thumb(ci+k,t),views:Math.round(base*hit*Math.min(age,6)/3+300),likes:Math.round(base*0.02),comments:Math.round(base*0.002)};
+      if(rnd()<0.6) analyses[vid]={video_id:vid,topic:t,hook_type:HOOK_TYPES[Math.floor(rnd()*8)],hook:"이런 사람, 주변에 꼭 한 명 있습니다",structure:"경고 훅 → 사례 3개 → 반전 → 한 줄 교훈",emotion:["공감","불안","깨달음","위로"][Math.floor(rnd()*4)],visual_style:"어두운 톤의 풍경 영상, 인물 없음",text_overlay:"화면 중앙 흰 글씨 두 줄, 핵심어 노란색",audio:"차분한 남성 내레이션, 잔잔한 피아노",pacing:["빠름","보통","느림"][Math.floor(rnd()*3)],cta:"저장해 두고 다시 보세요",why_it_works:"(예시) 첫 문장이 시청자 자신의 상황을 떠올리게 만들어 끝까지 보게 합니다.",transcript:"(예시 대사)",keywords:["관계","습관","인생"],score:6+Math.floor(rnd()*4),at:now,model:"예시"};
+    }});
+  return {data:{fetchedAt:now,channels,videos,errors:[]},analyses};
+}
+
+(function init(){
+  if(!S.data){
+    const d=demoData(); S.data=d.data; S.analyses={...d.analyses}; S.demo=true;
+    S.reports={briefing:{at:Date.now(),data:{headline:"(예시) 경고형 훅을 쓴 쇼츠가 이번 주 평소의 3배 이상 반응을 얻고 있습니다.",rising:[],channel_notes:["(예시) 채널 C가 하루 2개 업로드로 빈도를 늘렸습니다.","(예시) 채널 A의 중앙값 조회수가 지난주보다 올랐습니다."],insights:["(예시) 첫 문장에 '이런 사람'처럼 시청자를 지목하는 표현이 성과가 좋습니다.","(예시) 40초 안팎 길이의 반응이 가장 안정적입니다.","(예시) 마지막에 저장을 유도한 영상의 참여율이 높습니다."],ideas:[{title:"(예시) 조용히 손절당하는 사람의 말버릇",hook:"당신도 이 말, 하고 있지 않나요?"}]}}};
+  }
+  const t=(()=>{try{return localStorage.getItem("sr.tab")}catch{return null}})();
+  if(!location.hash && t && TABS.includes(t)) history.replaceState(null,"","#"+t);
+  renderBanner(); showTab();
+  if(!S.demo && S.keys.yt && S.settings.autoHours>0 && Date.now()-S.data.fetchedAt > S.settings.autoHours*3600e3) refreshData();
+})();
+</script>
+</body>
+</html>
